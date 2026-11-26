@@ -1,12 +1,15 @@
+import typography from "@tailwindcss/typography";
+
 /** @type {import('tailwindcss').Config} */
-module.exports = {
-  darkMode: 'class',
-  content: [
-    "./index.html",
-    "./src/**/*.{js,ts,jsx,tsx}",
-  ],
+export default {
+  darkMode: "class",
+  content: ["./index.html", "./src/**/*.{js,jsx}"],
   theme: {
-    extend: {},
+    extend: {
+      colors: {
+        brand: { 50: "#ecfdf8", 100: "#d1faec", 400: "#34cfa5", 500: "#12b389", 600: "#0a8f6f", 700: "#0a725a" },
+      },
+    },
   },
-  plugins: [],
-}
+  plugins: [typography],
+};
