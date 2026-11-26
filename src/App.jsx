@@ -1,145 +1,158 @@
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import AuthPage from "./components/AuthPage";
 import Sidebar from "./components/Sidebar";
 import ChatScreen from "./components/ChatScreen";
+import Icon from "./components/Icon";
+import { useTheme } from "./hooks/useTheme";
+import { api } from "./lib/api";
 
-// API base URL from environment variables
-// const API_BASE = `http://${import.meta.env.VITE_API_HOST}:${import.meta.env.VITE_API_PORT}`;
-
-const API_BASE = import.meta.env.VITE_API_URL;
-
+const newId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
 export default function App() {
-  // User authentication state
+  const [status, setStatus] = useState("checking"); // checking | ready | offline
   const [user, setUser] = useState(null);
-
-  // Dark mode toggle state
-  const [dark, setDark] = useState(false);
-
-  // All chats for the logged-in user
+  const [dark, toggleTheme] = useTheme();
   const [chats, setChats] = useState([]);
+  const [activeId, setActiveId] = useState(newId);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [notice, setNotice] = useState("");
 
-  // Currently active chat's ID
-  const [activeChatId, setActiveChatId] = useState(null);
-
-  // Unique session ID for the user (for tracking, analytics, etc.)
-  const [session] = useState(() => {
-    let s = localStorage.getItem("session_id");
-    if (!s) {
-      s = Math.random().toString(36).slice(2);
-      localStorage.setItem("session_id", s);
-    }
-    return s;
-  });
-
-  // Fetch user info on mount (to check if logged in)
-  useEffect(() => {
-    fetch(`${API_BASE}/me`, { credentials: "include" })
-      .then(res => res.json())
-      .then(data => setUser(data.user))
-      .catch(() => setUser(null));
+  const checkSession = useCallback(() => {
+    setStatus("checking");
+    api
+      .me()
+      .then((data) => {
+        setUser(data.user);
+        setStatus("ready");
+      })
+      .catch((err) => setStatus(err.status === 401 ? "ready" : "offline"));
   }, []);
 
-  // Fetch all chats for the user whenever user logs in/changes
-  useEffect(() => {
-    if (!user) return;
-    fetch(`${API_BASE}/list-chats`, { credentials: "include" })
-      .then(res => res.json())
-      .then(data => {
-        setChats(data.chats || []);
-        // Set the first chat as active by default
-        if (data.chats && data.chats.length > 0) setActiveChatId(data.chats[0].chatId);
-      });
-  }, [user]);
+  useEffect(checkSession, [checkSession]);
 
-  // Handler for creating a new chat
-  const handleNewChat = () => {
-    const newId = Date.now().toString();
-    setChats(prev => [...prev, { chatId: newId, title: "New Chat" }]);
-    setActiveChatId(newId);
-    // Optionally: You can also create an empty chat in the backend here
-  };
-
-  // Handler for logging out the user
-  const handleLogout = async () => {
-    await fetch(`${API_BASE}/logout`, {
-      method: "POST",
-      credentials: "include"
-    });
+  const reset = useCallback(() => {
+    window.speechSynthesis?.cancel();
     setUser(null);
     setChats([]);
-    setActiveChatId(null);
-  };
+    setActiveId(newId());
+    setMenuOpen(false);
+    setNotice("");
+  }, []);
 
-  // Update chat title in sidebar when a new message is sent
-  const addToHistory = (text, isVoice) => {
-    setChats(prev =>
-      prev.map(chat =>
-        chat.chatId === activeChatId && text
-          ? {
-              ...chat,
-              title:
-                prev.find(c => c.chatId === activeChatId)?.title === "New Chat"
-                  ? text
-                  : prev.find(c => c.chatId === activeChatId)?.title || text
-            }
-          : chat
+  useEffect(() => {
+    window.addEventListener("session-expired", reset);
+    return () => window.removeEventListener("session-expired", reset);
+  }, [reset]);
+
+  useEffect(() => {
+    if (!user) return;
+    api
+      .listChats()
+      // Keep any chat started while the list was loading.
+      .then((data) =>
+        setChats((prev) => [...prev, ...data.chats.filter((c) => !prev.some((p) => p.chatId === c.chatId))]),
       )
-    );
+      .catch((err) => setNotice(err.message));
+  }, [user]);
+
+  const select = (id) => {
+    setActiveId(id);
+    setMenuOpen(false);
   };
 
-  // If not logged in, show the authentication page
+  // Adds or updates a chat and moves it to the top.
+  const upsertChat = useCallback((chatId, title) => {
+    setChats((prev) => {
+      const old = prev.find((c) => c.chatId === chatId);
+      return [{ chatId, title: title || old?.title || "New chat" }, ...prev.filter((c) => c !== old)];
+    });
+  }, []);
+
+  const rename = async (chatId, title) => {
+    try {
+      const data = await api.renameChat(chatId, title);
+      setChats((prev) => prev.map((c) => (c.chatId === chatId ? { ...c, title: data.title } : c)));
+    } catch (err) {
+      setNotice(err.message);
+    }
+  };
+
+  const remove = async (chatId) => {
+    try {
+      await api.deleteChat(chatId);
+    } catch (err) {
+      if (err.status !== 404) return setNotice(err.message);
+    }
+    setChats((prev) => prev.filter((c) => c.chatId !== chatId));
+    if (chatId === activeId) setActiveId(newId());
+  };
+
+  const logout = async () => {
+    try {
+      await api.logout();
+      reset();
+    } catch (err) {
+      setNotice(err.message);
+    }
+  };
+
+  if (status === "checking") {
+    return (
+      <div className="grid min-h-dvh place-items-center p-6 text-center text-slate-500">
+        <div>
+          <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-4 border-brand-100 border-t-brand-600" />
+          <p>Connecting to LocoMan...</p>
+          <p className="mt-1 text-sm">The first load can take up to a minute while the server wakes up.</p>
+        </div>
+      </div>
+    );
+  }
+  if (status === "offline") {
+    return (
+      <div className="grid min-h-dvh place-items-center p-6 text-center">
+        <div>
+          <p className="mb-4">The server is not responding.</p>
+          <button className="btn-primary" onClick={checkSession}>Try again</button>
+        </div>
+      </div>
+    );
+  }
   if (!user) return <AuthPage onAuth={setUser} />;
 
   return (
-    <div className={`flex flex-col h-screen font-sans bg-white dark:bg-gray-900 text-black dark:text-white`}>
-      {/* Top navigation bar */}
-      <nav className="w-full flex items-center justify-between px-6 py-3 bg-gray-100 dark:bg-gray-800 shadow z-10">
-        <div className="flex items-center gap-2 font-bold text-xl">
-          <span className="inline-block w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center text-blue-600 font-extrabold">🤖</span>
-          <span className="text-blue-600">Loco-Man</span>
-        </div>
-        <div className="flex items-center gap-4">
-          {/* Dark mode toggle button */}
-          <button
-            className="bg-gray-200 dark:bg-gray-700 rounded-full px-4 py-2 shadow"
-            onClick={() => setDark(d => !d)}
-            title="Toggle dark mode"
-          >
-            {dark ? "🌙" : "☀️"}
+    <div className="flex h-dvh overflow-hidden">
+      <Sidebar
+        chats={chats}
+        activeId={activeId}
+        open={menuOpen}
+        user={user}
+        onClose={() => setMenuOpen(false)}
+        onSelect={select}
+        onNew={() => select(newId())}
+        onRename={rename}
+        onDelete={remove}
+        onLogout={logout}
+      />
+      <main className="flex min-w-0 flex-1 flex-col">
+        <header className="flex items-center gap-2 border-b border-slate-200 px-3 py-2 dark:border-slate-800">
+          <button className="icon-btn md:hidden" onClick={() => setMenuOpen(true)} aria-label="Open chat list">
+            <Icon name="menu" />
           </button>
-          {/* Logout button */}
-          <button
-            className="bg-red-200 dark:bg-red-700 rounded-full px-4 py-2 shadow text-red-700 dark:text-white font-semibold"
-            onClick={handleLogout}
-            title="Logout"
-          >
-            Logout
+          <h1 className="min-w-0 flex-1 truncate font-semibold">
+            {chats.find((c) => c.chatId === activeId)?.title || "New chat"}
+          </h1>
+          <button className="icon-btn" onClick={toggleTheme} aria-label={dark ? "Use light theme" : "Use dark theme"}>
+            <Icon name={dark ? "sun" : "moon"} />
           </button>
-        </div>
-      </nav>
-      {/* Main content area: Sidebar + Chat */}
-      <div className="flex flex-1 min-h-0">
-        {/* Sidebar with chat list */}
-        <Sidebar
-          chats={chats}
-          onSelect={setActiveChatId}
-          dark={dark}
-          onNewChat={handleNewChat}
-          activeChatId={activeChatId}
-        />
-        {/* Chat screen for the selected chat */}
-        <div className="flex-1 flex flex-col min-w-0">
-          <ChatScreen
-            key={activeChatId} // Remounts ChatScreen on chat change
-            chatId={activeChatId}
-            dark={dark}
-            addToHistory={addToHistory}
-            session={session}
-            chatKey={activeChatId}
-          />
-        </div>
-      </div>
+        </header>
+        {notice && (
+          <div role="alert" className="flex items-center justify-between gap-3 bg-red-50 px-4 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-200">
+            <span>{notice}</span>
+            <button onClick={() => setNotice("")} aria-label="Dismiss"><Icon name="close" /></button>
+          </div>
+        )}
+        <ChatScreen key={activeId} chatId={activeId} onChat={upsertChat} />
+      </main>
     </div>
   );
 }

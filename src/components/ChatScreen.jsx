@@ -1,250 +1,150 @@
-import { useState, useRef, useEffect } from "react";
-import ChatMessages from "./ChatMessages";
-import ChatInput from "./ChatInput";
-import LoadingSpinner from "./LoadingSpinner";
+import { useEffect, useRef, useState } from "react";
+import Composer from "./Composer";
+import Message from "./Message";
+import { api } from "../lib/api";
 
-// API config
-// const API_BASE = `http://${import.meta.env.VITE_API_HOST}:${import.meta.env.VITE_API_PORT}`;
+const SUGGESTIONS = [
+  "Plan a 3-day trip to Jaipur under ₹10,000",
+  "Best street food in Old Delhi",
+  "Goa ya Gokarna: kahan jaana chahiye?",
+  "Packing list for Ladakh in June",
+];
 
-const API_BASE = import.meta.env.VITE_API_URL;
+let counter = 0;
+const localMessage = (role, text) => ({ id: `local-${++counter}`, role, text });
 
-const SUPPORTED_FORMAT = "webm";
-const API_KEY = import.meta.env.VITE_OPENAI_API_KEY;
-
-/**
- * Main chat screen component.
- * Handles chat history, sending/receiving messages, audio recording, and TTS.
- */
-export default function ChatScreen({ chatId, dark, addToHistory, session, chatKey }) {
-  // State for messages, input, loading, recording, error
+export default function ChatScreen({ chatId, onChat }) {
   const [messages, setMessages] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [pending, setPending] = useState(null); // null | "text" | "voice"
   const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [recording, setRecording] = useState(false);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState("");
+  const abort = useRef(null);
+  const audio = useRef(null);
+  const scroller = useRef(null);
+  const follow = useRef(true);
 
-  // Refs for media and chat scroll
-  const mediaRecorderRef = useRef(null);
-  const audioChunksRef = useRef([]);
-  const chatContainerRef = useRef(null);
-
-  // Scroll to bottom when messages change
   useEffect(() => {
-    if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-    }
-  }, [messages]);
-
-  // Load chat history when chatId changes
-  useEffect(() => {
-    if (!chatId) return;
-    fetch(`${API_BASE}/load-chat?chatId=${chatId}`, { credentials: "include" })
-      .then(res => res.json())
-      .then(data => setMessages(data.messages || []));
+    const load = new AbortController();
+    api
+      .loadChat(chatId, load.signal)
+      .then((data) => setMessages(data.messages))
+      .catch((err) => {
+        // 404 means a new chat with nothing saved yet.
+        if (err.name !== "AbortError" && err.status !== 404) setError(err.message);
+      })
+      .finally(() => !load.signal.aborted && setLoading(false));
+    return () => load.abort();
   }, [chatId]);
 
-  // Save chat history when messages change
-  useEffect(() => {
-    if (messages.length > 0 && chatId) {
-      fetch(`${API_BASE}/save-chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ chatId, messages, title: messages[0]?.text || "New Chat" })
-      });
-    }
-  }, [messages, chatId]);
+  useEffect(
+    () => () => {
+      abort.current?.abort();
+      audio.current?.pause();
+      window.speechSynthesis?.cancel();
+    },
+    [],
+  );
 
-  // Clear messages when a new chat is started
+  // Follow new text unless the user has scrolled up to read.
   useEffect(() => {
-    // Clean up blob URLs when messages are cleared
-    messages.forEach(msg => {
-      if (msg.audio && msg.audio.startsWith("blob:")) {
-        URL.revokeObjectURL(msg.audio);
-      }
-    });
-    setMessages([]);
-  }, [chatKey]);
+    const el = scroller.current;
+    if (el && follow.current) el.scrollTop = el.scrollHeight;
+  }, [messages, pending]);
 
-  // Stop audio and TTS on unmount (refresh or chat change)
-  useEffect(() => {
-    return () => {
-      window.speechSynthesis.cancel();
-      document.querySelectorAll("audio").forEach(a => a.pause());
-    };
-  }, []);
-
-  // Speak text using browser's SpeechSynthesis API
-  const speakText = (text) => {
-    if (!window.speechSynthesis) return;
-    window.speechSynthesis.cancel();
-    const utter = new window.SpeechSynthesisUtterance(text);
-    utter.lang = "en-US";
-    window.speechSynthesis.speak(utter);
+  const onScroll = () => {
+    const el = scroller.current;
+    follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
   };
 
-  // Send text message to backend
-  const handleSend = async () => {
-    if (!input.trim()) return;
-
-    const newMessage = {
-      id: `${Date.now()}-${Math.random()}`, // Always unique!
-      role: "user",
-      text: input,
-      audio: null,
-      createdAt: Date.now()
-    };
-
-    setMessages(prev => [...prev, newMessage]);
-    setInput(""); // clear input
-    setLoading(true);
+  const send = async (raw) => {
+    const text = raw.trim();
+    if (!text || pending || loading) return;
+    const question = localMessage("user", text);
+    const reply = localMessage("bot", "");
+    const controller = new AbortController();
+    abort.current = controller;
+    follow.current = true;
+    setError("");
+    setInput("");
+    setPending("text");
+    setMessages((prev) => [...prev, question, reply]);
+    // List the chat right away; the server saves it even if the user switches chats.
+    if (messages.length === 0) onChat(chatId, text.slice(0, 60));
+    else onChat(chatId);
 
     try {
-      const res = await fetch(`${API_BASE}/text-query`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": API_KEY
-        },
-        body: JSON.stringify({ query: input })
+      const done = await api.streamMessage(chatId, text, {
+        signal: controller.signal,
+        onDelta: (delta) =>
+          setMessages((prev) => prev.map((m) => (m.id === reply.id ? { ...m, text: m.text + delta } : m))),
       });
-      const data = await res.json();
-      const botMsg = {
-        id: `${Date.now()}-${Math.random()}`,
-        role: "bot",
-        text: data.answer || data.error || "No response",
-        audio: null,
-        createdAt: Date.now()
-      };
-      setMessages((msgs) => [...msgs, botMsg]);
-      addToHistory(input, false); // Update sidebar history
-      if (botMsg.text && !botMsg.audio) speakText(botMsg.text);
-    } catch (e) {
-      setError("Error contacting server.");
-      setMessages(msgs => [
-        ...msgs,
-        {
-          id: `${Date.now()}-${Math.random()}`, // <-- Add this!
-          role: "bot",
-          text: "Error contacting server.",
-          audio: null
-        }
-      ]);
-    }
-    setLoading(false);
-  };
-
-  // Start or stop audio recording
-  const handleMicClick = async () => {
-    if (recording) {
-      mediaRecorderRef.current.stop();
-      setRecording(false);
-    } else {
-      if (!navigator.mediaDevices) {
-        alert("Audio recording not supported in this browser.");
-        return;
+      onChat(chatId, done.title);
+    } catch (err) {
+      if (err.name === "AbortError") {
+        setMessages((prev) => prev.filter((m) => m.id !== reply.id || m.text));
+      } else {
+        // Nothing was saved, so remove both bubbles and let the user retry.
+        setMessages((prev) => prev.filter((m) => m.id !== question.id && m.id !== reply.id));
+        setInput((current) => current || text);
+        setError(err.message);
       }
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new window.MediaRecorder(stream, { mimeType: `audio/${SUPPORTED_FORMAT}` });
-      audioChunksRef.current = [];
-      mediaRecorder.ondataavailable = e => {
-        if (e.data.size > 0) audioChunksRef.current.push(e.data);
-      };
-      mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: `audio/${SUPPORTED_FORMAT}` });
-        await sendAudio(audioBlob);
-      };
-      mediaRecorderRef.current = mediaRecorder;
-      mediaRecorder.start();
-      setRecording(true);
     }
+    setPending(null);
   };
 
-  // Send recorded audio to backend and handle response
-  const sendAudio = async (audioBlob) => {
-    setLoading(true);
-    const formData = new FormData();
-    formData.append("audio", audioBlob, `recording.${SUPPORTED_FORMAT}`);
-
+  const sendVoice = async (blob) => {
+    if (!blob.size) return setError("Nothing was recorded.");
+    const controller = new AbortController();
+    abort.current = controller;
+    follow.current = true;
+    setError("");
+    setPending("voice");
     try {
-      const res = await fetch(`${API_BASE}/audio-travel-query`, {
-        method: "POST",
-        headers: {
-          "x-api-key": API_KEY
-        },
-        body: formData
-      });
-      const data = await res.json();
-      const transcribedText = data.query || "[Voice message sent]";
-      addToHistory(transcribedText, true);
-      setMessages(msgs => [
-        ...msgs,
-        {
-          id: `${Date.now()}-${Math.random()}`,
-          role: "user",
-          text: transcribedText,
-          audio: URL.createObjectURL(audioBlob),
-          createdAt: Date.now()
-        },
-        {
-          id: `${Date.now()}-${Math.random()}`,
-          role: "bot",
-          text: data.answer || data.error || "No response",
-          audio: data.audio_url,
-          createdAt: Date.now()
-        }
-      ]);
-      if (data.answer && !data.audio_url) speakText(data.answer);
-      if (data.audio_url) playAudio(data.audio_url, data.answer);
-    } catch (e) {
-      setError("Error contacting server.");
-      setMessages(msgs => [
-        ...msgs,
-        {
-          id: `${Date.now()}-${Math.random()}`, // <-- Make sure this is present!
-          role: "bot",
-          text: "Error contacting server.",
-          audio: null
-        }
-      ]);
+      const data = await api.sendVoice(chatId, blob, controller.signal);
+      setMessages((prev) => [...prev, ...data.messages]);
+      onChat(chatId, data.title);
+      if (data.audio) {
+        audio.current = new Audio(`data:audio/mpeg;base64,${data.audio}`);
+        // Autoplay can be blocked; the "Read aloud" button still works.
+        audio.current.play().catch(() => {});
+      }
+    } catch (err) {
+      if (err.name !== "AbortError") setError(err.message);
     }
-    setLoading(false);
+    setPending(null);
   };
 
-  // Play audio from URL or fallback to TTS
-  const playAudio = (url, fallbackText) => {
-    if (url) {
-      const audio = new Audio(url);
-      audio.play();
-    } else if (fallbackText) {
-      speakText(fallbackText);
-    }
-  };
-
-  // Pass messages, loading, error, input, handlers as props
   return (
-    <div className={`flex-1 flex flex-col h-full w-full ${dark ? "dark" : ""}`}>
-      <div className="flex-1 min-h-0 flex flex-col justify-between bg-white dark:bg-gray-900 h-full w-full pt-0 transition-colors duration-300">
-        <ChatMessages
-          messages={messages}
-          loading={loading}
-          chatContainerRef={chatContainerRef}
-        />
-        <ChatInput
-          input={input}
-          setInput={setInput}
-          handleSend={handleSend}
-          handleMicClick={handleMicClick}
-          loading={loading}
-          recording={recording}
-        />
-        {error && (
-          <div className="bg-red-100 text-red-700 px-4 py-2 rounded mb-2">
-            {error}
-            <button className="ml-2 text-red-500" onClick={() => setError(null)}>✖</button>
-          </div>
-        )}
+    <>
+      <div ref={scroller} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col gap-5 px-4 py-6" aria-live="polite" aria-busy={Boolean(pending)}>
+          {loading && <p className="m-auto animate-pulse text-slate-500">Loading chat...</p>}
+          {!loading && messages.length === 0 && !pending && (
+            <div className="m-auto w-full text-center">
+              <h2 className="text-2xl font-bold">Where to next?</h2>
+              <p className="mt-1 text-slate-500">Ask by text or tap the mic.</p>
+              <div className="mt-6 grid gap-2 sm:grid-cols-2">
+                {SUGGESTIONS.map((s) => (
+                  <button key={s} className="rounded-xl border border-slate-200 p-3 text-left text-sm transition hover:border-brand-500 hover:bg-brand-50 dark:border-slate-800 dark:hover:bg-slate-900" onClick={() => send(s)}>
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {messages.map((m, i) => (
+            <Message key={m.id} role={m.role} text={m.text} streaming={pending === "text" && i === messages.length - 1} />
+          ))}
+          {pending === "voice" && <p className="animate-pulse text-slate-500">Listening to your message...</p>}
+        </div>
       </div>
-    </div>
+      {error && (
+        <div role="alert" className="mx-auto mb-2 w-full max-w-3xl px-3">
+          <p className="rounded-xl bg-red-50 px-4 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-200">{error}</p>
+        </div>
+      )}
+      <Composer input={input} setInput={setInput} busy={Boolean(pending) || loading} canStop={pending === "text"} onSend={send} onStop={() => abort.current?.abort()} onRecorded={sendVoice} onError={setError} />
+    </>
   );
 }

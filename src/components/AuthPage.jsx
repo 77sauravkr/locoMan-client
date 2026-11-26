@@ -1,107 +1,67 @@
 import { useState } from "react";
-
-// const API_BASE = `http://${import.meta.env.VITE_API_HOST}:${import.meta.env.VITE_API_PORT}`;
-
-const API_BASE = import.meta.env.VITE_API_URL;
-
+import { api } from "../lib/api";
 
 export default function AuthPage({ onAuth }) {
-  const [mode, setMode] = useState("login"); // "login" or "register"
-  const [email, setEmail] = useState("");
+  const [mode, setMode] = useState("login");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const registering = mode === "register";
 
-  // Handle form submit for login/register
-  const handleSubmit = async (e) => {
+  const submit = async (e) => {
     e.preventDefault();
     setError("");
     setLoading(true);
     try {
-      const res = await fetch(
-        `${API_BASE}/${mode === "login" ? "login" : "register"}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ username: email, password }),
-        }
-      );
-      let data;
-      try {
-        data = await res.json();
-      } catch {
-        throw new Error("Server error: Invalid response");
-      }
-      if (!res.ok) throw new Error(data.error || "Something went wrong");
+      const data = await api[mode]({ username: username.trim(), password });
       onAuth(data.user);
     } catch (err) {
       setError(err.message);
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-r from-blue-600 to-blue-400">
-      <div className="bg-white rounded-3xl shadow-2xl flex w-[800px] max-w-full overflow-hidden">
-        {/* Left Side */}
-        <div className="flex-1 bg-gradient-to-b from-blue-600 to-blue-400 flex flex-col justify-center items-center p-10 text-white">
-          <h1 className="text-3xl font-bold mb-2">L0c0 M🚶🏼‍♂️N</h1>
-          <p className="mb-6">The most popular Travel guide</p>
-          {/* <button className="bg-blue-300 hover:bg-blue-200 text-blue-900 font-semibold px-6 py-2 rounded-full transition">Read More</button> */}
-        </div>
-        {/* Right Side */}
-        <div className="flex-1 bg-gray-50 flex flex-col justify-center items-center p-10">
-          <h2 className="text-2xl font-bold mb-1">{mode === "login" ? "Hello Again!" : "Create Account"}</h2>
-          <p className="mb-6 text-gray-500">{mode === "login" ? "Welcome Back" : "Sign up to get started"}</p>
-          <form className="w-full max-w-xs space-y-4" onSubmit={handleSubmit}>
-            <div className="relative">
-              <input
-                type="text"
-                className="w-full px-10 py-3 rounded-full bg-white border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                placeholder="Email Address"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                required
-                autoComplete="username"
-              />
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
-                <svg width="18" height="18" fill="none" stroke="currentColor"><path d="M2 4l7 5 7-5" /><rect x="2" y="4" width="14" height="10" rx="2" /></svg>
-              </span>
-            </div>
-            <div className="relative">
-              <input
-                type="password"
-                className="w-full px-10 py-3 rounded-full bg-white border border-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                placeholder="Password"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                required
-                autoComplete={mode === "login" ? "current-password" : "new-password"}
-              />
-              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400">
-                <svg width="18" height="18" fill="none" stroke="currentColor"><circle cx="9" cy="7" r="4" /><path d="M2 16c1.5-2.5 4.5-4 7-4s5.5 1.5 7 4" /></svg>
-              </span>
-            </div>
-            {error && <div className="text-red-500 text-sm">{error}</div>}
-            <button
-              type="submit"
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-full transition"
-              disabled={loading}
-            >
-              {loading ? "Please wait..." : mode === "login" ? "Login" : "Register"}
+    <div className="grid min-h-dvh place-items-center bg-gradient-to-br from-brand-700 to-brand-400 p-4">
+      <div className="grid w-full max-w-3xl overflow-hidden rounded-3xl bg-white shadow-2xl dark:bg-slate-900 md:grid-cols-2">
+        <section className="flex flex-col justify-center bg-brand-700 p-8 text-white md:p-10">
+          <img src="/favicon.svg" alt="" className="mb-4 h-12 w-12 rounded-xl ring-1 ring-white/30" />
+          <h1 className="text-3xl font-bold">LocoMan</h1>
+          <p className="mt-2 text-brand-100">Your AI travel guide. Type or talk, in English, Hindi or Hinglish.</p>
+          <ul className="mt-6 hidden space-y-2 text-sm text-brand-50 md:block">
+            <li>Day-by-day itineraries</li>
+            <li>Local food and budget tips</li>
+            <li>Saved chats you can return to</li>
+          </ul>
+        </section>
+        <section className="p-8 md:p-10">
+          <h2 className="mb-6 text-2xl font-bold">{registering ? "Create account" : "Welcome back"}</h2>
+          <form className="space-y-4" onSubmit={submit}>
+            <label className="block text-sm font-medium">
+              Username or email
+              <input className="field mt-1" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" required minLength={registering ? 3 : undefined} maxLength={64} />
+            </label>
+            <label className="block text-sm font-medium">
+              Password
+              <input className="field mt-1" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete={registering ? "new-password" : "current-password"} required minLength={registering ? 8 : undefined} />
+              {registering && <span className="mt-1 block text-xs font-normal text-slate-500">At least 8 characters</span>}
+            </label>
+            {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+            <button className="btn-primary w-full" disabled={loading}>
+              {loading ? "Please wait..." : registering ? "Create account" : "Log in"}
             </button>
           </form>
           <button
-            className="mt-4 text-blue-600 hover:underline"
-            onClick={() => setMode(mode === "login" ? "register" : "login")}
+            className="mt-4 text-sm text-brand-600 hover:underline"
+            onClick={() => {
+              setMode(registering ? "login" : "register");
+              setError("");
+            }}
           >
-            {mode === "login" ? "Don't have an account? Register" : "Already have an account? Login"}
+            {registering ? "Already have an account? Log in" : "New here? Create an account"}
           </button>
-          {mode === "login" && (
-            <button className="mt-2 text-gray-400 text-sm hover:underline">Forgot Password</button>
-          )}
-        </div>
+        </section>
       </div>
     </div>
   );
