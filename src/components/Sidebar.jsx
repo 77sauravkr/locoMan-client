@@ -46,7 +46,13 @@ function ChatRow({ chat, active, onSelect, onRename, onDelete }) {
   );
 }
 
-export default function Sidebar({ chats, activeId, open, user, onClose, onSelect, onNew, onRename, onDelete, onLogout }) {
+const LINKS = [
+  { path: "/", section: "", label: "Chat", icon: "chat" },
+  { path: "/trips", section: "trips", label: "My trips", icon: "map" },
+  { path: "/account", section: "account", label: "Account", icon: "user" },
+];
+
+export default function Sidebar({ chats, activeId, section = "", open, user, onClose, onNavigate, onSelect, onNew, onRename, onDelete, onLogout }) {
   const [query, setQuery] = useState("");
   const shown = chats.filter((c) => c.title.toLowerCase().includes(query.trim().toLowerCase()));
 
@@ -57,7 +63,14 @@ export default function Sidebar({ chats, activeId, open, user, onClose, onSelect
         <div className="flex items-center gap-2 p-3">
           <img src="/favicon.svg" alt="" className="h-8 w-8" />
           <span className="flex-1 text-lg font-bold">LocoMan</span>
-          <button className="icon-btn md:hidden" onClick={onClose} aria-label="Close chat list"><Icon name="close" /></button>
+          <button className="icon-btn md:hidden" onClick={onClose} aria-label="Close menu"><Icon name="close" /></button>
+        </div>
+        <div className="space-y-1 px-3 pb-3">
+          {LINKS.map((link) => (
+            <button key={link.path} className={`flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium ${section === link.section ? "bg-brand-100 text-brand-700 dark:bg-slate-800 dark:text-brand-100" : "hover:bg-slate-100 dark:hover:bg-slate-800/60"}`} onClick={() => onNavigate(link.path)}>
+              <Icon name={link.icon} className="h-4 w-4" /> {link.label}
+            </button>
+          ))}
         </div>
         <div className="px-3">
           <button className="btn-primary flex w-full items-center justify-center gap-2" onClick={onNew}>

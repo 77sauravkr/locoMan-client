@@ -1,25 +1,40 @@
 import { useState } from "react";
+import GoogleButton from "./GoogleButton";
 import { api } from "../lib/api";
+import { navigate } from "../lib/router";
 
-export default function AuthPage({ onAuth }) {
+const TITLES = { login: "Welcome back", register: "Create account", reset: "Reset password" };
+
+export default function AuthPage({ onAuth, joining }) {
   const [mode, setMode] = useState("login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const registering = mode === "register";
+  const fresh = mode !== "login";
 
   const submit = async (e) => {
     e.preventDefault();
     setError("");
     setLoading(true);
     try {
-      const data = await api[mode]({ username: username.trim(), password });
-      onAuth(data.user);
+      const name = username.trim();
+      const data =
+        mode === "reset"
+          ? await api.reset({ username: name, recoveryCode: code, newPassword: password })
+          : await api[mode]({ username: name, password });
+      onAuth(data.user, data.recoveryCode);
     } catch (err) {
       setError(err.message);
       setLoading(false);
     }
+  };
+
+  const go = (next) => {
+    setMode(next);
+    setError("");
+    setPassword("");
   };
 
   return (
@@ -30,37 +45,45 @@ export default function AuthPage({ onAuth }) {
           <h1 className="text-3xl font-bold">LocoMan</h1>
           <p className="mt-2 text-brand-100">Your AI travel guide. Type or talk, in English, Hindi or Hinglish.</p>
           <ul className="mt-6 hidden space-y-2 text-sm text-brand-50 md:block">
-            <li>Day-by-day itineraries</li>
-            <li>Local food and budget tips</li>
-            <li>Saved chats you can return to</li>
+            <li>Day-by-day trip plans on a map</li>
+            <li>Plan with friends and split costs</li>
+            <li>Ask with a photo or your voice</li>
           </ul>
         </section>
         <section className="p-8 md:p-10">
-          <h2 className="mb-6 text-2xl font-bold">{registering ? "Create account" : "Welcome back"}</h2>
+          <h2 className="mb-6 text-2xl font-bold">{TITLES[mode]}</h2>
+          {joining && <p className="mb-4 rounded-xl bg-brand-50 px-3 py-2 text-sm text-brand-700 dark:bg-slate-800 dark:text-brand-100">Log in or create an account to join the trip.</p>}
           <form className="space-y-4" onSubmit={submit}>
             <label className="block text-sm font-medium">
               Username or email
-              <input className="field mt-1" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" required minLength={registering ? 3 : undefined} maxLength={64} />
+              <input className="field mt-1" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" required minLength={mode === "register" ? 3 : undefined} maxLength={64} />
             </label>
+            {mode === "reset" && (
+              <label className="block text-sm font-medium">
+                Recovery code
+                <input className="field mt-1 font-mono uppercase" value={code} onChange={(e) => setCode(e.target.value)} placeholder="XXXX-XXXX-XXXX-XXXX" required />
+              </label>
+            )}
             <label className="block text-sm font-medium">
-              Password
-              <input className="field mt-1" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete={registering ? "new-password" : "current-password"} required minLength={registering ? 8 : undefined} />
-              {registering && <span className="mt-1 block text-xs font-normal text-slate-500">At least 8 characters</span>}
+              {mode === "reset" ? "New password" : "Password"}
+              <input className="field mt-1" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete={fresh ? "new-password" : "current-password"} required minLength={fresh ? 8 : undefined} />
+              {fresh && <span className="mt-1 block text-xs font-normal text-slate-500">At least 8 characters</span>}
             </label>
             {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
             <button className="btn-primary w-full" disabled={loading}>
-              {loading ? "Please wait..." : registering ? "Create account" : "Log in"}
+              {loading ? "Please wait..." : mode === "login" ? "Log in" : mode === "register" ? "Create account" : "Reset password"}
             </button>
           </form>
-          <button
-            className="mt-4 text-sm text-brand-600 hover:underline"
-            onClick={() => {
-              setMode(registering ? "login" : "register");
-              setError("");
-            }}
-          >
-            {registering ? "Already have an account? Log in" : "New here? Create an account"}
-          </button>
+          <GoogleButton onAuth={onAuth} onError={setError} />
+          <div className="mt-4 flex flex-col items-start gap-2 text-sm">
+            <button className="text-brand-600 hover:underline" onClick={() => go(mode === "register" ? "login" : "register")}>
+              {mode === "register" ? "Already have an account? Log in" : "New here? Create an account"}
+            </button>
+            <button className="text-slate-500 hover:underline" onClick={() => go(mode === "reset" ? "login" : "reset")}>
+              {mode === "reset" ? "Back to log in" : "Forgot password?"}
+            </button>
+            <button className="text-slate-500 hover:underline" onClick={() => navigate("/privacy")}>Privacy</button>
+          </div>
         </section>
       </div>
     </div>

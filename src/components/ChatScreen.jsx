@@ -171,6 +171,12 @@ export default function ChatScreen({ chatId, onChat, onChatFailed }) {
     }
   };
 
+  // The latest answer becomes the starting point for a saved trip.
+  const makeTrip = () => {
+    window.history.pushState({ notes: messages.at(-1).text.slice(0, 6000) }, "", "/trips");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  };
+
   const download = () => {
     const url = URL.createObjectURL(new Blob([asMarkdown(messages)], { type: "text/markdown" }));
     const link = Object.assign(document.createElement("a"), { href: url, download: "locoman-trip.md" });
@@ -201,6 +207,7 @@ export default function ChatScreen({ chatId, onChat, onChatFailed }) {
           ))}
           {!pending && messages.at(-1)?.role === "bot" && (
             <div className="flex flex-wrap items-center gap-2">
+              <button className="chip !border-brand-500 font-medium !text-brand-600" onClick={makeTrip}>Save as trip</button>
               {FOLLOW_UPS.map((q) => (
                 <button key={q} className="chip" onClick={() => send(q)}>{q}</button>
               ))}

@@ -2,41 +2,82 @@ import { useCallback, useEffect, useState } from "react";
 import AuthPage from "./components/AuthPage";
 import Sidebar from "./components/Sidebar";
 import ChatScreen from "./components/ChatScreen";
+import Trips from "./components/Trips";
+import TripPage from "./components/TripPage";
+import Account from "./components/Account";
+import Privacy from "./components/Privacy";
+import RecoveryCode from "./components/RecoveryCode";
 import Icon from "./components/Icon";
 import { useTheme } from "./hooks/useTheme";
 import { api } from "./lib/api";
+import { offline } from "./lib/offline";
+import { navigate, usePath } from "./lib/router";
 
 const newId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
 export default function App() {
-  const [status, setStatus] = useState("checking"); // checking | ready | offline
+  const path = usePath();
+  const [status, setStatus] = useState("checking"); // checking | ready | offline | unreachable
   const [user, setUser] = useState(null);
   const [dark, toggleTheme] = useTheme();
   const [chats, setChats] = useState([]);
   const [activeId, setActiveId] = useState(newId);
   const [menuOpen, setMenuOpen] = useState(false);
   const [notice, setNotice] = useState("");
+  const [recoveryCode, setRecoveryCode] = useState("");
+
+  const [, section, param] = path.split("/");
+  const isOffline = status === "offline";
+
+  const signedIn = useCallback((next, code) => {
+    offline.clear();
+    offline.saveUser(next);
+    setUser(next);
+    setStatus("ready");
+    if (code) setRecoveryCode(code);
+  }, []);
 
   const checkSession = useCallback(() => {
     setStatus("checking");
-    api
-      .me()
-      .then((data) => {
+    api.me().then(
+      (data) => {
         setUser(data.user);
+        offline.saveUser(data.user);
         setStatus("ready");
-      })
-      .catch((err) => setStatus(err.status === 401 ? "ready" : "offline"));
+      },
+      (err) => {
+        if (err.status === 401) {
+          offline.clear();
+          return setStatus("ready");
+        }
+        // Without a connection, saved trips can still be read.
+        const saved = err.status === 0 && offline.user();
+        if (saved) {
+          setUser(saved);
+          setStatus("offline");
+          if (!window.location.pathname.startsWith("/trips")) navigate("/trips", { replace: true });
+        } else setStatus("unreachable");
+      },
+    );
   }, []);
 
   useEffect(checkSession, [checkSession]);
 
+  useEffect(() => {
+    if (!isOffline) return;
+    window.addEventListener("online", checkSession);
+    return () => window.removeEventListener("online", checkSession);
+  }, [isOffline, checkSession]);
+
   const reset = useCallback(() => {
     window.speechSynthesis?.cancel();
+    offline.clear();
     setUser(null);
     setChats([]);
     setActiveId(newId());
     setMenuOpen(false);
     setNotice("");
+    setRecoveryCode("");
   }, []);
 
   useEffect(() => {
@@ -44,8 +85,21 @@ export default function App() {
     return () => window.removeEventListener("session-expired", reset);
   }, [reset]);
 
+  // An invite link joins as soon as someone is signed in.
   useEffect(() => {
-    if (!user) return;
+    if (!user || section !== "join" || isOffline) return;
+    api.joinTrip(param).then(
+      (d) => navigate(`/trips/${d.id}`, { replace: true }),
+      (err) => {
+        setNotice(err.message);
+        navigate("/trips", { replace: true });
+      },
+    );
+  }, [user, section, param, isOffline]);
+
+  const userName = user?.username;
+  useEffect(() => {
+    if (!userName || isOffline) return;
     api
       .listChats()
       // Keep any chat started while the list was loading.
@@ -53,11 +107,15 @@ export default function App() {
         setChats((prev) => [...prev, ...data.chats.filter((c) => !prev.some((p) => p.chatId === c.chatId))]),
       )
       .catch((err) => setNotice(err.message));
-  }, [user]);
+  }, [userName, isOffline]);
 
+  const go = (to) => {
+    setMenuOpen(false);
+    navigate(to);
+  };
   const select = (id) => {
     setActiveId(id);
-    setMenuOpen(false);
+    go("/");
   };
 
   // Adds or updates a chat and moves it to the top.
@@ -67,7 +125,6 @@ export default function App() {
       return [{ chatId, title: title || old?.title || "New chat" }, ...prev.filter((c) => c !== old)];
     });
   }, []);
-
   const dropChat = useCallback((chatId) => {
     setChats((prev) => prev.filter((c) => c.chatId !== chatId));
   }, []);
@@ -87,7 +144,7 @@ export default function App() {
     } catch (err) {
       if (err.status !== 404) return setNotice(err.message);
     }
-    setChats((prev) => prev.filter((c) => c.chatId !== chatId));
+    dropChat(chatId);
     if (chatId === activeId) setActiveId(newId());
   };
 
@@ -95,6 +152,7 @@ export default function App() {
     try {
       await api.logout();
       reset();
+      navigate("/", { replace: true });
     } catch (err) {
       setNotice(err.message);
     }
@@ -106,12 +164,11 @@ export default function App() {
         <div>
           <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-4 border-brand-100 border-t-brand-600" />
           <p>Connecting to LocoMan...</p>
-          <p className="mt-1 text-sm">The first load can take up to a minute while the server wakes up.</p>
         </div>
       </div>
     );
   }
-  if (status === "offline") {
+  if (status === "unreachable") {
     return (
       <div className="grid min-h-dvh place-items-center p-6 text-center">
         <div>
@@ -121,16 +178,31 @@ export default function App() {
       </div>
     );
   }
-  if (!user) return <AuthPage onAuth={setUser} />;
+  if (!user) {
+    if (section === "privacy") {
+      return (
+        <div className="min-h-dvh">
+          <button className="m-4 text-brand-600 hover:underline" onClick={() => navigate("/")}>← Back</button>
+          <Privacy />
+        </div>
+      );
+    }
+    return <AuthPage onAuth={signedIn} joining={section === "join"} />;
+  }
+
+  const chatTitle = chats.find((c) => c.chatId === activeId)?.title || "New chat";
+  const title = { trips: "My trips", account: "Account", privacy: "Privacy", join: "Joining trip..." }[section] || chatTitle;
 
   return (
     <div className="flex h-dvh overflow-hidden">
       <Sidebar
         chats={chats}
-        activeId={activeId}
+        activeId={section ? null : activeId}
+        section={section}
         open={menuOpen}
         user={user}
         onClose={() => setMenuOpen(false)}
+        onNavigate={go}
         onSelect={select}
         onNew={() => select(newId())}
         onRename={rename}
@@ -139,12 +211,10 @@ export default function App() {
       />
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="flex items-center gap-2 border-b border-slate-200 px-3 py-2 dark:border-slate-800">
-          <button className="icon-btn md:hidden" onClick={() => setMenuOpen(true)} aria-label="Open chat list">
+          <button className="icon-btn md:hidden" onClick={() => setMenuOpen(true)} aria-label="Open menu">
             <Icon name="menu" />
           </button>
-          <h1 className="min-w-0 flex-1 truncate font-semibold">
-            {chats.find((c) => c.chatId === activeId)?.title || "New chat"}
-          </h1>
+          <h1 className="min-w-0 flex-1 truncate font-semibold">{title}</h1>
           <button className="icon-btn" onClick={toggleTheme} aria-label={dark ? "Use light theme" : "Use dark theme"}>
             <Icon name={dark ? "sun" : "moon"} />
           </button>
@@ -155,8 +225,17 @@ export default function App() {
             <button onClick={() => setNotice("")} aria-label="Dismiss"><Icon name="close" /></button>
           </div>
         )}
-        <ChatScreen key={activeId} chatId={activeId} onChat={upsertChat} onChatFailed={dropChat} />
+        {!section ? (
+          <ChatScreen key={activeId} chatId={activeId} onChat={upsertChat} onChatFailed={dropChat} />
+        ) : (
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {section === "trips" && (param ? <TripPage key={param} id={param} userId={user._id} isOffline={isOffline} /> : <Trips isOffline={isOffline} />)}
+            {section === "account" && !isOffline && <Account user={user} onUser={setUser} onDeleted={() => { reset(); navigate("/", { replace: true }); }} />}
+            {section === "privacy" && <Privacy />}
+          </div>
+        )}
       </main>
+      {recoveryCode && <RecoveryCode code={recoveryCode} onClose={() => setRecoveryCode("")} />}
     </div>
   );
 }
