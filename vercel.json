@@ -1,6 +1,6 @@
 {
   "rewrites": [
-    { "source": "/api/:path*", "destination": "https://locoman-server-3.onrender.com/api/:path*" }
+    { "source": "/api/:path*", "destination": "https://locoman-server.vercel.app/api/:path*" }
   ],
   "headers": [
     {
