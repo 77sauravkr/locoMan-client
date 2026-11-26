@@ -42,8 +42,8 @@ export const api = {
     body.append("audio", blob, "voice");
     return json(`${chatPath(id)}/voice`, { method: "POST", body, signal });
   },
-  async streamMessage(id, text, { signal, onDelta }) {
-    const res = await send(`${chatPath(id)}/messages`, { method: "POST", json: { text }, signal });
+  async streamMessage(id, body, { signal, onDelta }) {
+    const res = await send(`${chatPath(id)}/messages`, { method: "POST", json: body, signal });
     const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
     let buffer = "";
     for (;;) {

@@ -2,6 +2,7 @@ import { memo, useEffect, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import Icon from "./Icon";
+import { canSpeak, speak as readAloud, stopSpeaking } from "../lib/speech";
 
 const MARKDOWN = {
   // Model output could point images at other sites, so they are not loaded.
@@ -13,21 +14,20 @@ const MARKDOWN = {
 function Actions({ text }) {
   const [speaking, setSpeaking] = useState(false);
   const [copied, setCopied] = useState(false);
-  const utterance = useRef(null);
+  const started = useRef(false);
 
   useEffect(() => () => {
-    if (utterance.current) window.speechSynthesis.cancel();
+    if (started.current) stopSpeaking();
   }, []);
 
-  const speak = () => {
-    window.speechSynthesis.cancel();
-    if (speaking) return setSpeaking(false);
-    const next = new SpeechSynthesisUtterance(text.replace(/[*_#`>|]/g, ""));
-    if (/[ऀ-ॿ]/.test(text)) next.lang = "hi-IN";
-    next.onend = next.onerror = () => setSpeaking(false);
-    utterance.current = next;
-    window.speechSynthesis.speak(next);
+  const toggle = () => {
+    if (speaking) {
+      stopSpeaking();
+      return setSpeaking(false);
+    }
+    started.current = true;
     setSpeaking(true);
+    readAloud(text, () => setSpeaking(false));
   };
 
   const copy = async () => {
@@ -42,8 +42,8 @@ function Actions({ text }) {
 
   return (
     <div className="mt-1 flex gap-1">
-      {"speechSynthesis" in window && (
-        <button className="icon-btn !h-8 !w-8" onClick={speak} aria-label={speaking ? "Stop reading" : "Read aloud"}>
+      {canSpeak() && (
+        <button className="icon-btn !h-8 !w-8" onClick={toggle} aria-label={speaking ? "Stop reading" : "Read aloud"}>
           <Icon name={speaking ? "stop" : "volume"} className="h-4 w-4" />
         </button>
       )}
@@ -54,10 +54,15 @@ function Actions({ text }) {
   );
 }
 
-function Message({ role, text, streaming }) {
+function Message({ role, text, streaming, image, hasImage }) {
   if (role === "user") {
     return (
       <div className="max-w-[85%] self-end whitespace-pre-wrap break-words rounded-2xl rounded-br-md bg-brand-600 px-4 py-2.5 text-white">
+        {image ? (
+          <img src={image} alt="You sent" className="mb-2 max-h-60 rounded-lg" />
+        ) : (
+          hasImage && <span className="mb-1 flex items-center gap-1 text-xs text-brand-100"><Icon name="image" className="h-4 w-4" /> Photo</span>
+        )}
         {text}
       </div>
     );

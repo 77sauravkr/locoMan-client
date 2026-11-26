@@ -7,8 +7,12 @@ React, Vite, Tailwind CSS.
 
 ## Features
 
-Streaming replies with Markdown, voice questions with spoken answers, saved chats
-(rename, delete), dark mode, mobile layout.
+- Streaming replies with Markdown and Google Maps links for places
+- Photo questions (pictures are resized in the browser and not stored)
+- "Near me" with approximate location, only when switched on
+- Voice messages and a hands-free live voice chat (replies are read by the browser)
+- Saved chats with search, rename and delete; share or download a trip
+- Dark mode, mobile layout, installable to the home screen
 
 ## Run locally
 

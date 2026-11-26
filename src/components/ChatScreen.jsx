@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import Composer from "./Composer";
 import Message from "./Message";
+import LiveVoice from "./LiveVoice";
+import Icon from "./Icon";
 import { api } from "../lib/api";
+import { canSpeak, speak, stopSpeaking } from "../lib/speech";
 
 const SUGGESTIONS = [
   "Plan a 3-day trip to Jaipur under ₹10,000",
@@ -9,18 +12,25 @@ const SUGGESTIONS = [
   "Goa ya Gokarna: kahan jaana chahiye?",
   "Packing list for Ladakh in June",
 ];
+const FOLLOW_UPS = ["Day-wise plan banao", "Budget breakdown do", "Local food kya try karun?", "Wahan kaise pahunchun?"];
+const PHOTO_QUESTION = "What is this place or thing, and what should a traveller know about it?";
+
+const asMarkdown = (messages) => messages.map((m) => (m.role === "user" ? `**You:** ${m.text}` : m.text)).join("\n\n");
 
 let counter = 0;
 const localMessage = (role, text) => ({ id: `local-${++counter}`, role, text });
 
-export default function ChatScreen({ chatId, onChat }) {
+export default function ChatScreen({ chatId, onChat, onChatFailed }) {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [pending, setPending] = useState(null); // null | "text" | "voice"
   const [input, setInput] = useState("");
   const [error, setError] = useState("");
+  const [image, setImage] = useState(null);
+  const [location, setLocation] = useState(null);
+  const [live, setLive] = useState(false);
+  const [shared, setShared] = useState("");
   const abort = useRef(null);
-  const audio = useRef(null);
   const scroller = useRef(null);
   const follow = useRef(true);
 
@@ -40,8 +50,7 @@ export default function ChatScreen({ chatId, onChat }) {
   useEffect(
     () => () => {
       abort.current?.abort();
-      audio.current?.pause();
-      window.speechSynthesis?.cancel();
+      stopSpeaking();
     },
     [],
   );
@@ -58,23 +67,31 @@ export default function ChatScreen({ chatId, onChat }) {
   };
 
   const send = async (raw) => {
-    const text = raw.trim();
+    const photo = image;
+    const text = raw.trim() || (photo ? PHOTO_QUESTION : "");
     if (!text || pending || loading) return;
-    const question = localMessage("user", text);
+    const question = { ...localMessage("user", text), image: photo?.preview };
+    const isNew = messages.length === 0;
     const reply = localMessage("bot", "");
     const controller = new AbortController();
     abort.current = controller;
     follow.current = true;
     setError("");
     setInput("");
+    setImage(null);
     setPending("text");
     setMessages((prev) => [...prev, question, reply]);
     // List the chat right away; the server saves it even if the user switches chats.
-    if (messages.length === 0) onChat(chatId, text.slice(0, 60));
+    if (isNew) onChat(chatId, text.slice(0, 60));
     else onChat(chatId);
 
     try {
-      const done = await api.streamMessage(chatId, text, {
+      const body = {
+        text,
+        ...(photo && { image: { mimeType: photo.mimeType, data: photo.data } }),
+        ...(location && { location }),
+      };
+      const done = await api.streamMessage(chatId, body, {
         signal: controller.signal,
         onDelta: (delta) =>
           setMessages((prev) => prev.map((m) => (m.id === reply.id ? { ...m, text: m.text + delta } : m))),
@@ -86,8 +103,11 @@ export default function ChatScreen({ chatId, onChat }) {
       } else {
         // Nothing was saved, so remove both bubbles and let the user retry.
         setMessages((prev) => prev.filter((m) => m.id !== question.id && m.id !== reply.id));
-        setInput((current) => current || text);
+        setInput((current) => current || raw);
+        setImage((current) => current || photo);
         setError(err.message);
+        // Nothing was saved, so a new chat should not stay in the list.
+        if (isNew) onChatFailed(chatId);
       }
     }
     setPending(null);
@@ -102,17 +122,60 @@ export default function ChatScreen({ chatId, onChat }) {
     setPending("voice");
     try {
       const data = await api.sendVoice(chatId, blob, controller.signal);
-      setMessages((prev) => [...prev, ...data.messages]);
-      onChat(chatId, data.title);
-      if (data.audio) {
-        audio.current = new Audio(`data:audio/mpeg;base64,${data.audio}`);
-        // Autoplay can be blocked; the "Read aloud" button still works.
-        audio.current.play().catch(() => {});
-      }
+      addExchange(data);
+      speak(data.messages[1].text);
     } catch (err) {
       if (err.name !== "AbortError") setError(err.message);
     }
     setPending(null);
+  };
+
+  const addExchange = (data) => {
+    follow.current = true;
+    setMessages((prev) => [...prev, ...data.messages]);
+    onChat(chatId, data.title);
+  };
+
+  // Location is asked for only when this is switched on.
+  const toggleNearMe = () => {
+    if (location) return setLocation(null);
+    if (!navigator.geolocation) return setError("Location is not supported in this browser.");
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => {
+        setError("");
+        setLocation({ lat: Number(coords.latitude.toFixed(2)), lng: Number(coords.longitude.toFixed(2)) });
+      },
+      () => setError("Location was blocked. Allow it in your browser settings to use Near me."),
+      { timeout: 10_000, maximumAge: 5 * 60_000 },
+    );
+  };
+
+  const openLive = () => {
+    if (!navigator.mediaDevices || !window.MediaRecorder) return setError("Voice is not supported in this browser.");
+    // iOS only allows speech after it was started by a tap.
+    if (canSpeak()) window.speechSynthesis.speak(new SpeechSynthesisUtterance(""));
+    setError("");
+    setLive(true);
+  };
+
+  const share = async () => {
+    const text = asMarkdown(messages);
+    try {
+      if (navigator.share) await navigator.share({ title: "My LocoMan trip plan", text });
+      else {
+        await navigator.clipboard.writeText(text);
+        setShared("Copied");
+      }
+    } catch (err) {
+      if (err.name !== "AbortError") setError("Could not share this chat.");
+    }
+  };
+
+  const download = () => {
+    const url = URL.createObjectURL(new Blob([asMarkdown(messages)], { type: "text/markdown" }));
+    const link = Object.assign(document.createElement("a"), { href: url, download: "locoman-trip.md" });
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -134,8 +197,17 @@ export default function ChatScreen({ chatId, onChat }) {
             </div>
           )}
           {messages.map((m, i) => (
-            <Message key={m.id} role={m.role} text={m.text} streaming={pending === "text" && i === messages.length - 1} />
+            <Message key={m.id} role={m.role} text={m.text} image={m.image} hasImage={m.hasImage} streaming={pending === "text" && i === messages.length - 1} />
           ))}
+          {!pending && messages.at(-1)?.role === "bot" && (
+            <div className="flex flex-wrap items-center gap-2">
+              {FOLLOW_UPS.map((q) => (
+                <button key={q} className="chip" onClick={() => send(q)}>{q}</button>
+              ))}
+              <button className="chip flex items-center gap-1" onClick={share}><Icon name="share" className="h-4 w-4" /> {shared || "Share"}</button>
+              <button className="chip" onClick={download}>Download</button>
+            </div>
+          )}
           {pending === "voice" && <p className="animate-pulse text-slate-500">Listening to your message...</p>}
         </div>
       </div>
@@ -144,7 +216,8 @@ export default function ChatScreen({ chatId, onChat }) {
           <p className="rounded-xl bg-red-50 px-4 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-200">{error}</p>
         </div>
       )}
-      <Composer input={input} setInput={setInput} busy={Boolean(pending) || loading} canStop={pending === "text"} onSend={send} onStop={() => abort.current?.abort()} onRecorded={sendVoice} onError={setError} />
+      <Composer input={input} setInput={setInput} image={image} setImage={setImage} nearMe={location} onToggleNearMe={toggleNearMe} busy={Boolean(pending) || loading} canStop={pending === "text"} onSend={send} onStop={() => abort.current?.abort()} onRecorded={sendVoice} onLive={openLive} onError={setError} />
+      {live && <LiveVoice chatId={chatId} onExchange={addExchange} onClose={() => setLive(false)} />}
     </>
   );
 }

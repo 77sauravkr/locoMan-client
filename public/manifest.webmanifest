@@ -1,0 +1,9 @@
+{
+  "name": "LocoMan: AI Travel Guide",
+  "short_name": "LocoMan",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#0a8f6f",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

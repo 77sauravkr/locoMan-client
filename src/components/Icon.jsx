@@ -12,6 +12,10 @@ const PATHS = {
   check: "M5 12l5 5L20 7",
   edit: "M4 20h4L20 8l-4-4L4 16v4z",
   trash: "M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13",
+  image: "M4 5h16v14H4zM4 16l5-5 4 4 3-3 4 4M15 9h.01",
+  pin: "M12 3a6 6 0 0 0-6 6c0 5 6 12 6 12s6-7 6-12a6 6 0 0 0-6-6zM12 11a2 2 0 1 0 0-4 2 2 0 0 0 0 4z",
+  wave: "M4 10v4M8 6v12M12 3v18M16 7v10M20 10v4",
+  share: "M12 15V3M8 7l4-4 4 4M5 12v8h14v-8",
   logout: "M10 4H5v16h5M15 8l4 4-4 4M19 12H9",
 };
 

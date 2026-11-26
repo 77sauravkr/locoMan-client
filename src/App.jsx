@@ -68,6 +68,10 @@ export default function App() {
     });
   }, []);
 
+  const dropChat = useCallback((chatId) => {
+    setChats((prev) => prev.filter((c) => c.chatId !== chatId));
+  }, []);
+
   const rename = async (chatId, title) => {
     try {
       const data = await api.renameChat(chatId, title);
@@ -151,7 +155,7 @@ export default function App() {
             <button onClick={() => setNotice("")} aria-label="Dismiss"><Icon name="close" /></button>
           </div>
         )}
-        <ChatScreen key={activeId} chatId={activeId} onChat={upsertChat} />
+        <ChatScreen key={activeId} chatId={activeId} onChat={upsertChat} onChatFailed={dropChat} />
       </main>
     </div>
   );

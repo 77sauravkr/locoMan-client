@@ -47,6 +47,9 @@ function ChatRow({ chat, active, onSelect, onRename, onDelete }) {
 }
 
 export default function Sidebar({ chats, activeId, open, user, onClose, onSelect, onNew, onRename, onDelete, onLogout }) {
+  const [query, setQuery] = useState("");
+  const shown = chats.filter((c) => c.title.toLowerCase().includes(query.trim().toLowerCase()));
+
   return (
     <>
       {open && <div className="fixed inset-0 z-20 bg-black/40 md:hidden" onClick={onClose} aria-hidden="true" />}
@@ -61,9 +64,15 @@ export default function Sidebar({ chats, activeId, open, user, onClose, onSelect
             <Icon name="plus" /> New chat
           </button>
         </div>
+        {chats.length > 0 && (
+          <div className="px-3 pt-3">
+            <input type="search" className="field !py-2 text-sm" placeholder="Search chats" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search chats" />
+          </div>
+        )}
         <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto p-3" aria-label="Your chats">
           {chats.length === 0 && <p className="mt-6 text-center text-sm text-slate-500">No chats yet</p>}
-          {chats.map((chat) => (
+          {chats.length > 0 && shown.length === 0 && <p className="mt-6 text-center text-sm text-slate-500">No match</p>}
+          {shown.map((chat) => (
             <ChatRow key={chat.chatId} chat={chat} active={chat.chatId === activeId} onSelect={onSelect} onRename={onRename} onDelete={onDelete} />
           ))}
         </nav>
