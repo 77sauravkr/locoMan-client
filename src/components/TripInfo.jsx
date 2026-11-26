@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import { bookingLinks } from "../lib/booking";
+import { weatherAlerts } from "../lib/alerts";
+import Currency from "./Currency";
+import Emergency from "./Emergency";
+import Wallet from "./Wallet";
 
 // WMO weather codes, grouped.
 function sky(code) {
@@ -12,7 +16,7 @@ function sky(code) {
   return "⛈️ Storm";
 }
 
-export default function TripInfo({ trip, isOffline }) {
+export default function TripInfo({ trip, userId, isOffline }) {
   const [weather, setWeather] = useState(null);
   const [error, setError] = useState("");
   const [from, setFrom] = useState("");
@@ -26,8 +30,17 @@ export default function TripInfo({ trip, isOffline }) {
     };
   }, [trip.destination, isOffline]);
 
+  const alerts = weather ? weatherAlerts(weather.days, trip.startDate, trip.days.length) : [];
+
   return (
     <div className="space-y-6">
+      {alerts.length > 0 && (
+        <div role="alert" className="rounded-xl bg-amber-100 px-3 py-2 text-sm text-amber-900">
+          <p className="font-semibold">Weather warnings</p>
+          <ul>{alerts.map((a) => <li key={a}>{a}</li>)}</ul>
+        </div>
+      )}
+      <Wallet userId={userId} tripId={trip.id} />
       <section>
         <h3 className="mb-2 font-semibold">Weather, next 7 days</h3>
         {isOffline && <p className="text-sm text-slate-500">Needs internet.</p>}
@@ -50,6 +63,8 @@ export default function TripInfo({ trip, isOffline }) {
           </>
         )}
       </section>
+      <Currency isOffline={isOffline} />
+      <Emergency />
       <section>
         <h3 className="mb-2 font-semibold">Book travel and stay</h3>
         <input className="field !py-2" value={from} onChange={(e) => setFrom(e.target.value)} placeholder="Travelling from (city)" aria-label="Travelling from" maxLength={60} />

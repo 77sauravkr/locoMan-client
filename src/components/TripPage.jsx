@@ -3,12 +3,13 @@ import Itinerary from "./Itinerary";
 import Budget from "./Budget";
 import TripInfo from "./TripInfo";
 import TripShare from "./TripShare";
+import Packing from "./Packing";
 import { api } from "../lib/api";
 import { offline } from "../lib/offline";
 import { navigate } from "../lib/router";
 
 const TripMap = lazy(() => import("./TripMap"));
-const TABS = ["Plan", "Map", "Budget", "Info", "Group"];
+const TABS = ["Plan", "Map", "Budget", "Packing", "Info", "Group"];
 
 export default function TripPage({ id, userId, isOffline }) {
   const [trip, setTrip] = useState(() => (isOffline ? offline.trip(id) : null));
@@ -43,6 +44,17 @@ export default function TripPage({ id, userId, isOffline }) {
     };
   }, [id, isOffline, reload]);
 
+  // Picks up changes by other group members while the page is visible.
+  const seen = trip?.updatedAt;
+  useEffect(() => {
+    if (isOffline || !seen) return;
+    const timer = setInterval(() => {
+      if (document.hidden) return;
+      api.tripStamp(id).then((d) => d.updatedAt !== seen && setReload((n) => n + 1), () => {});
+    }, 10_000);
+    return () => clearInterval(timer);
+  }, [id, isOffline, seen]);
+
   // Runs a change on the server and shows the trip it returns.
   const apply = async (action, leaving = false) => {
     setError("");
@@ -60,7 +72,13 @@ export default function TripPage({ id, userId, isOffline }) {
       return false;
     }
   };
-  const save = (changes) => apply(() => api.saveTrip(id, { ...changes, version: trip.version }));
+  // An editor passes the version it started from, so later changes by others are not lost.
+  const save = (changes) => apply(() => api.saveTrip(id, { version: trip.version, ...changes }));
+  const reactions = {
+    vote: (itemId, on) => apply(() => api.vote(id, itemId, on)),
+    comment: (itemId, text) => apply(() => api.addComment(id, itemId, text)),
+    removeComment: (commentId) => apply(() => api.removeComment(id, commentId)),
+  };
 
   if (!trip) {
     return (
@@ -83,7 +101,7 @@ export default function TripPage({ id, userId, isOffline }) {
         ))}
       </div>
       {error && <p role="alert" className="mb-3 rounded-xl bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-200">{error}</p>}
-      {tab === "Plan" && <Itinerary trip={trip} readOnly={stale} onSave={save} />}
+      {tab === "Plan" && <Itinerary trip={trip} readOnly={stale} onSave={save} reactions={reactions} />}
       {tab === "Map" && (
         <>
           <Suspense fallback={<p className="animate-pulse text-slate-500">Loading map...</p>}><TripMap days={trip.days} /></Suspense>
@@ -93,7 +111,8 @@ export default function TripPage({ id, userId, isOffline }) {
       {tab === "Budget" && (
         <Budget trip={trip} readOnly={stale} onSave={save} onAdd={(body) => apply(() => api.addExpense(id, body))} onRemove={(eid) => apply(() => api.removeExpense(id, eid))} />
       )}
-      {tab === "Info" && <TripInfo trip={trip} isOffline={stale} />}
+      {tab === "Packing" && <Packing trip={trip} readOnly={stale} onSave={save} />}
+      {tab === "Info" && <TripInfo trip={trip} userId={userId} isOffline={stale} />}
       {tab === "Group" && <TripShare trip={trip} userId={userId} readOnly={stale} apply={apply} onLeft={() => navigate("/trips", { replace: true })} />}
     </div>
   );

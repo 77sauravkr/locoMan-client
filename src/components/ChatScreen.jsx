@@ -5,6 +5,7 @@ import LiveVoice from "./LiveVoice";
 import Icon from "./Icon";
 import { api } from "../lib/api";
 import { canSpeak, speak, stopSpeaking } from "../lib/speech";
+import { downloadFile } from "../lib/download";
 
 const SUGGESTIONS = [
   "Plan a 3-day trip to Jaipur under ₹10,000",
@@ -177,12 +178,7 @@ export default function ChatScreen({ chatId, onChat, onChatFailed }) {
     window.dispatchEvent(new PopStateEvent("popstate"));
   };
 
-  const download = () => {
-    const url = URL.createObjectURL(new Blob([asMarkdown(messages)], { type: "text/markdown" }));
-    const link = Object.assign(document.createElement("a"), { href: url, download: "locoman-trip.md" });
-    link.click();
-    URL.revokeObjectURL(url);
-  };
+  const download = () => downloadFile("locoman-trip.md", asMarkdown(messages), "text/markdown");
 
   return (
     <>

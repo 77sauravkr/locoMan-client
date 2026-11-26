@@ -23,7 +23,8 @@ export const offline = {
   saveTrips: (trips) => write("trips", trips),
   trip: (id) => read(`trip:${id}`),
   // The invite link grants access, so it is not kept on the device.
-  saveTrip: (trip) => write(`trip:${trip.id}`, { ...trip, inviteToken: undefined }),
+  // Share links grant access, so they are not kept on the device.
+  saveTrip: (trip) => write(`trip:${trip.id}`, { ...trip, inviteToken: undefined, publicToken: undefined }),
   removeTrip: (id) => {
     try {
       localStorage.removeItem(`${PREFIX}trip:${id}`);

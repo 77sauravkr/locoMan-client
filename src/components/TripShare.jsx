@@ -44,6 +44,20 @@ export default function TripShare({ trip, userId, readOnly, apply, onLeft }) {
           )}
         </section>
       )}
+      {owner && (
+        <section className="space-y-2">
+          <h3 className="font-semibold">Public page</h3>
+          <p className="text-sm text-slate-500">A read-only page of the plan that anyone can open. Expenses, names and comments are not shown.</p>
+          {trip.publicToken ? (
+            <>
+              <input className="field !py-2 text-sm" readOnly value={`${window.location.origin}/t/${trip.publicToken}`} onFocus={(e) => e.target.select()} aria-label="Public link" />
+              <button className="chip" onClick={() => apply(() => api.setPublic(trip.id, false))}>Make private again</button>
+            </>
+          ) : (
+            <button className="chip" onClick={() => apply(() => api.setPublic(trip.id, true))}>Publish</button>
+          )}
+        </section>
+      )}
       <section>
         <h3 className="mb-2 font-semibold">Members</h3>
         {trip.members.length === 0 && <p className="text-sm text-slate-500">Nobody has joined yet.</p>}

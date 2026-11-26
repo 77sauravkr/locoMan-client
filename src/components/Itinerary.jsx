@@ -1,6 +1,10 @@
 import { useState } from "react";
 import Icon from "./Icon";
+import Reactions from "./Reactions";
 import { api } from "../lib/api";
+import { toIcs } from "../lib/ics";
+import { shortestOrder } from "../lib/route";
+import { downloadFile } from "../lib/download";
 
 const mapsLink = (item, destination) =>
   `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${item.name} ${destination}`)}`;
@@ -8,6 +12,7 @@ const mapsLink = (item, destination) =>
 // Edits a local copy; nothing is sent until Save.
 function Editor({ trip, onSave, onCancel }) {
   const [days, setDays] = useState(() => structuredClone(trip.days));
+  const [version] = useState(trip.version);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
 
@@ -36,7 +41,7 @@ function Editor({ trip, onSave, onCancel }) {
 
   const save = async () => {
     setBusy(true);
-    await onSave(days);
+    await onSave(days, version);
     setBusy(false);
   };
 
@@ -77,17 +82,79 @@ function Editor({ trip, onSave, onCancel }) {
   );
 }
 
-export default function Itinerary({ trip, readOnly, onSave }) {
+// Asks the AI for a changed plan and shows it before anything is saved.
+function AskAi({ trip, onSave }) {
+  const [instruction, setInstruction] = useState("");
+  const [proposal, setProposal] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const ask = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const { days } = await api.reviseTrip(trip.id, instruction);
+      setProposal({ days, version: trip.version });
+    } catch (err) {
+      setError(err.message);
+    }
+    setBusy(false);
+  };
+
+  const accept = async () => {
+    // Someone else may have edited while the AI was working.
+    if (proposal.version !== trip.version) setError("The trip changed meanwhile. Please ask again.");
+    else if (!(await onSave({ days: proposal.days }))) return;
+    else setInstruction("");
+    setProposal(null);
+  };
+
+  return (
+    <div className="space-y-2 print:hidden">
+      <form onSubmit={ask} className="flex gap-2">
+        <input className="field !py-2" value={instruction} onChange={(e) => setInstruction(e.target.value)} placeholder="Ask AI to change: day 2 relaxed, add food..." maxLength={300} aria-label="Ask AI to change the plan" required />
+        <button className="btn-primary !py-2" disabled={busy}>{busy ? "Thinking..." : "Ask"}</button>
+      </form>
+      {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+      {proposal && (
+        <div className="rounded-2xl border-2 border-brand-500 p-3">
+          <p className="mb-2 font-semibold">Suggested new plan</p>
+          {proposal.days.map((day, d) => (
+            <p key={d} className="text-sm"><strong>{day.title}:</strong> {day.items.map((i) => i.name).join(" → ")}</p>
+          ))}
+          <div className="mt-3 flex gap-2">
+            <button className="btn-primary !py-2" onClick={accept}>Use this plan</button>
+            <button className="chip" onClick={() => setProposal(null)}>Discard</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function Itinerary({ trip, readOnly, onSave, reactions }) {
   const [editing, setEditing] = useState(false);
+  const optimise = (d) => onSave({ days: trip.days.map((day, i) => (i === d ? { ...day, items: shortestOrder(day.items) } : day)) });
   if (editing && !readOnly) {
-    return <Editor trip={trip} onCancel={() => setEditing(false)} onSave={async (days) => (await onSave({ days })) && setEditing(false)} />;
+    return <Editor trip={trip} onCancel={() => setEditing(false)} onSave={async (days, version) => (await onSave({ days, version })) && setEditing(false)} />;
   }
   return (
     <div className="space-y-4">
-      {!readOnly && <button className="chip" onClick={() => setEditing(true)}>Edit plan</button>}
+      <div className="flex flex-wrap gap-2 print:hidden">
+        {!readOnly && <button className="chip" onClick={() => setEditing(true)}>Edit plan</button>}
+        {trip.startDate && <button className="chip" onClick={() => downloadFile("locoman-trip.ics", toIcs(trip), "text/calendar")}>Add to calendar</button>}
+        <button className="chip" onClick={() => window.print()}>Print / PDF</button>
+      </div>
+      {!readOnly && <AskAi trip={trip} onSave={onSave} />}
       {trip.days.map((day, d) => (
         <section key={d}>
-          <h3 className="mb-2 font-semibold">{day.title}</h3>
+          <h3 className="mb-2 flex flex-wrap items-center gap-2 font-semibold">
+            {day.title}
+            {!readOnly && shortestOrder(day.items) !== day.items && (
+              <button className="chip !py-0.5 text-xs font-normal print:hidden" onClick={() => optimise(d)} title="Reorder by distance, keeping the first stop. Times stay in their slots.">Shorten route</button>
+            )}
+          </h3>
           {day.items.length === 0 && <p className="text-sm text-slate-500">Nothing planned yet.</p>}
           <ol className="space-y-2">
             {day.items.map((item, i) => (
@@ -97,6 +164,7 @@ export default function Itinerary({ trip, readOnly, onSave }) {
                   <a className="hover:underline" href={mapsLink(item, trip.destination)} target="_blank" rel="noopener noreferrer">{item.name}</a>
                 </p>
                 {item.notes && <p className="mt-1 text-sm text-slate-500">{item.notes}</p>}
+                {!readOnly && <Reactions item={item} trip={trip} actions={reactions} />}
               </li>
             ))}
           </ol>

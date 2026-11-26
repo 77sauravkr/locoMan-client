@@ -9,6 +9,7 @@ export default function Trips({ isOffline }) {
   const [busy, setBusy] = useState("");
   // Set when the user comes from a chat reply.
   const [notes] = useState(() => window.history.state?.notes || "");
+  const [prefill] = useState(() => window.history.state?.destination || "");
 
   useEffect(() => {
     if (isOffline) return;
@@ -44,7 +45,7 @@ export default function Trips({ isOffline }) {
         <form onSubmit={submit} className="space-y-3 rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
           <h2 className="font-semibold">New trip</h2>
           {notes && <p className="text-sm text-brand-600">The plan will follow your chat. Fill in the destination.</p>}
-          <input className="field" name="destination" placeholder="Where to? e.g. Jaipur" required maxLength={100} aria-label="Destination" />
+          <input className="field" name="destination" defaultValue={prefill} placeholder="Where to? e.g. Jaipur" required maxLength={100} aria-label="Destination" />
           <div className="grid gap-3 sm:grid-cols-3">
             <label className="text-sm">Start date<input className="field mt-1" type="date" name="startDate" /></label>
             <label className="text-sm">Days<input className="field mt-1" type="number" name="days" min={1} max={14} defaultValue={3} required /></label>

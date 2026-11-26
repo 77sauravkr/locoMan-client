@@ -1,5 +1,6 @@
 import { useState } from "react";
 import Icon from "./Icon";
+import { useInstall } from "../hooks/useInstall";
 
 function ChatRow({ chat, active, onSelect, onRename, onDelete }) {
   const [mode, setMode] = useState("view"); // view | edit | confirm
@@ -48,12 +49,14 @@ function ChatRow({ chat, active, onSelect, onRename, onDelete }) {
 
 const LINKS = [
   { path: "/", section: "", label: "Chat", icon: "chat" },
+  { path: "/discover", section: "discover", label: "Discover", icon: "compass" },
   { path: "/trips", section: "trips", label: "My trips", icon: "map" },
   { path: "/account", section: "account", label: "Account", icon: "user" },
 ];
 
 export default function Sidebar({ chats, activeId, section = "", open, user, onClose, onNavigate, onSelect, onNew, onRename, onDelete, onLogout }) {
   const [query, setQuery] = useState("");
+  const install = useInstall();
   const shown = chats.filter((c) => c.title.toLowerCase().includes(query.trim().toLowerCase()));
 
   return (
@@ -89,6 +92,9 @@ export default function Sidebar({ chats, activeId, section = "", open, user, onC
             <ChatRow key={chat.chatId} chat={chat} active={chat.chatId === activeId} onSelect={onSelect} onRename={onRename} onDelete={onDelete} />
           ))}
         </nav>
+        {install && (
+          <button className="chip mx-3 mb-2" onClick={install}>Install app</button>
+        )}
         <div className="flex items-center gap-2 border-t border-slate-200 p-3 dark:border-slate-800">
           <span className="min-w-0 flex-1 truncate text-sm">{user.username}</span>
           <button className="icon-btn" onClick={onLogout} aria-label="Log out"><Icon name="logout" /></button>

@@ -1,9 +1,21 @@
 {
+  "id": "/",
   "name": "LocoMan: AI Travel Guide",
   "short_name": "LocoMan",
+  "description": "Plan trips by text, voice or photo, with maps, budget and friends.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#020617",
   "theme_color": "#0a8f6f",
-  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+  "categories": ["travel"],
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "My trips", "url": "/trips" },
+    { "name": "Discover places", "url": "/discover" }
+  ]
 }

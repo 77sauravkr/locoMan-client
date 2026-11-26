@@ -3,6 +3,9 @@ import AuthPage from "./components/AuthPage";
 import Sidebar from "./components/Sidebar";
 import ChatScreen from "./components/ChatScreen";
 import Trips from "./components/Trips";
+import Discover from "./components/Discover";
+import PublicTrip from "./components/PublicTrip";
+import { wallet } from "./lib/wallet";
 import TripPage from "./components/TripPage";
 import Account from "./components/Account";
 import Privacy from "./components/Privacy";
@@ -55,7 +58,7 @@ export default function App() {
         if (saved) {
           setUser(saved);
           setStatus("offline");
-          if (!window.location.pathname.startsWith("/trips")) navigate("/trips", { replace: true });
+          if (!/^\/(trips|t\/)/.test(window.location.pathname)) navigate("/trips", { replace: true });
         } else setStatus("unreachable");
       },
     );
@@ -151,12 +154,16 @@ export default function App() {
   const logout = async () => {
     try {
       await api.logout();
+      await wallet.clear();
       reset();
       navigate("/", { replace: true });
     } catch (err) {
       setNotice(err.message);
     }
   };
+
+  // Shared plans open without an account.
+  if (section === "t") return <PublicTrip token={param} />;
 
   if (status === "checking") {
     return (
@@ -191,7 +198,7 @@ export default function App() {
   }
 
   const chatTitle = chats.find((c) => c.chatId === activeId)?.title || "New chat";
-  const title = { trips: "My trips", account: "Account", privacy: "Privacy", join: "Joining trip..." }[section] || chatTitle;
+  const title = { discover: "Discover", trips: "My trips", account: "Account", privacy: "Privacy", join: "Joining trip..." }[section] || chatTitle;
 
   return (
     <div className="flex h-dvh overflow-hidden">
@@ -230,7 +237,8 @@ export default function App() {
         ) : (
           <div className="min-h-0 flex-1 overflow-y-auto">
             {section === "trips" && (param ? <TripPage key={param} id={param} userId={user._id} isOffline={isOffline} /> : <Trips isOffline={isOffline} />)}
-            {section === "account" && !isOffline && <Account user={user} onUser={setUser} onDeleted={() => { reset(); navigate("/", { replace: true }); }} />}
+            {section === "discover" && !isOffline && <Discover />}
+            {section === "account" && !isOffline && <Account user={user} onUser={setUser} onDeleted={() => { wallet.clear(); reset(); navigate("/", { replace: true }); }} />}
             {section === "privacy" && <Privacy />}
           </div>
         )}
